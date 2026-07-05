@@ -1,40 +1,61 @@
-# SPDX-FileCopyrightText: © 2024 Tiny Tapeout
-# SPDX-License-Identifier: Apache-2.0
-
 import cocotb
-from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
-
+from cocotb.triggers import ClockCycles, RisingEdge
 
 @cocotb.test()
 async def test_project(dut):
-    dut._log.info("Start")
+    dut._log.info("Starting Streaming Rasterizer Silicon Test Engine...")
 
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 10, unit="us")
-    cocotb.start_soon(clock.start())
+    # --- Start System Clock (100MHz equivalent simulation steps) ---
+    cocotb.start_soon(cocotb.clock.Clock(dut.clk, 10, units="ns").start())
 
-    # Reset
-    dut._log.info("Reset")
-    dut.ena.value = 1
+    # --- Hardware Reset Phase ---
+    dut.rst_n.value = 0
     dut.ui_in.value = 0
     dut.uio_in.value = 0
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
+    dut.ena.value = 1
+    await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
+    await RisingEdge(dut.clk)
 
-    dut._log.info("Test project behavior")
+    # --- Loading Counter-Clockwise (CCW) Triangle Mesh Data ---
+    # Vertex V0 (X=7, Y=2) -> Binary: 1 010 0111 -> 0xA7
+    dut._log.info("Streaming Geometric Point V0 (7,2)")
+    dut.ui_in.value = 0xA7
+    await RisingEdge(dut.clk)
+    dut.ui_in.value = 0x00
+    await ClockCycles(dut.clk, 2)
 
-    # Set the input values you want to test
-    dut.ui_in.value = 20
-    dut.uio_in.value = 30
+    # Vertex V1 (X=2, Y=1) -> Binary: 1 001 0010 -> 0x92
+    dut._log.info("Streaming Geometric Point V1 (2,1)")
+    dut.ui_in.value = 0x92
+    await RisingEdge(dut.clk)
+    dut.ui_in.value = 0x00
+    await ClockCycles(dut.clk, 2)
 
-    # Wait for one clock cycle to see the output values
-    await ClockCycles(dut.clk, 1)
+    # Vertex V2 (X=4, Y=6) with Checkerboard Mode (01) -> Binary: 1 011 0100 -> 0xB4
+    dut._log.info("Streaming Geometric Point V2 (4,6) [Shader: Checkerboard]")
+    dut.ui_in.value = 0xB4
+    await RisingEdge(dut.clk)
+    dut.ui_in.value = 0x00
+    await RisingEdge(dut.clk)
 
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 50
+    # --- Hardware Pipeline Process Tracking Loop ---
+    dut._log.info("Waiting for core to enter STATE_RENDER phase...")
+    
+    # Run the clock and watch the outputs step forward
+    for cycle in range(60):
+        await RisingEdge(dut.clk)
+        out_val = int(dut.uo_out.value)
+        
+        # Check if rendering valid bit is high (uo_out[7])
+        if (out_val & 0x80):
+            color_bits = (out_val & 0x3F)
+            dut._log.info(f"Cycle {cycle}: Processing Screen Pixel Box. Color bits out (HEX) = {hex(color_bits)}")
+        
+        # Check if FSM tripped the finished bit (uo_out[6])
+        if (out_val & 0x40):
+            dut._log.info("Core triggered Hardware DONE Interrupt Flag successfully!")
+            break
 
-    # Keep testing the module by changing the input values, waiting for
-    # one or more clock cycles, and asserting the expected output values.
+    assert (int(dut.uo_out.value) & 0x40) != 0, "Error: Rasterization process failed to complete safely!"
+    dut._log.info("All Hardware Sanity Checks Passed. Design is rock solid!")
