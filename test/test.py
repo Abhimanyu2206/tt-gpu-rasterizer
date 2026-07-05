@@ -1,4 +1,5 @@
 import cocotb
+from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, RisingEdge
 
 @cocotb.test()
@@ -6,7 +7,7 @@ async def test_project(dut):
     dut._log.info("Starting Streaming Rasterizer Silicon Test Engine...")
 
     # --- Start System Clock (100MHz equivalent simulation steps) ---
-    cocotb.start_soon(cocotb.clock.Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
 
     # --- Hardware Reset Phase ---
     dut.rst_n.value = 0
